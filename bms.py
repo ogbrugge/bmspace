@@ -89,7 +89,7 @@ def bms_connect(address, port):
 
         try:
             print("trying to connect %s" % bms_serial)
-            s = serial.Serial(bms_serial,timeout = 1)
+            s = serial.Serial( port = bms_serial, baudrate = 115200, timeout = 1)
             print("BMS serial connected")
             return s, True
         except IOError as msg:
@@ -746,7 +746,7 @@ def bms_getAnalogData(bms,batNumber):
             if print_initial:
                 print("Pack " + str(p) + ", Total cells: " + str(cells))
             byte_index += 2
-            
+
             cell_min_volt = 0
             cell_max_volt = 0
 
@@ -817,7 +817,13 @@ def bms_getAnalogData(bms,batNumber):
             if print_initial:
                 print("Pack " + str(p) + ", I Remaining Capacity: " + str(i_remain_cap[p-1]) + " mAh")
 
+            # Number of 2 byte fields following this one
+            fields = int(inc_data[byte_index:byte_index+2],16)
             byte_index += 2 # Manual: Define number P = 3
+            # We know 3 fields out of the number in fields (full capacity, cycle count and design capacity), so we deduct these
+            fields -= 3
+            # What remains is for now unknown, in my case it was 1 byte 99, then 4 times design capacity (280000mAh) as 2 bytes, 100 as 1 byte,
+            # and then what looked like a voltage but only a tiny bit higher than Vpack, that completes the 6 additional 2 bytes
 
             i_full_cap.append(int(inc_data[byte_index:byte_index+4],16)*10)
             byte_index += 4
@@ -847,8 +853,15 @@ def bms_getAnalogData(bms,batNumber):
             if print_initial:
                 print("Pack " + str(p) + ", SOH: " + str(soh[p-1]) + " %")
 
-            byte_index += 2
+            # Now we skip remaining number of fields * 2 bytes (4 byte string characters)
+            byte_index += (fields * 4)
 
+            # In my case I still need to skip 4 bytes, not sure what this is, perhaps it is the end of a pack marker?
+            if (byte_index < len(inc_data)) and (int(inc_data[byte_index:byte_index+4],16) != 0):
+               print( "Something must be off, we're expecting two zero bytes here, trying to continue..." )
+            byte_index += 4
+
+            # With the adaptation to take into account the magic define number being number of fields it is no longer necessary
             #Test for non signed value (matching cell count), to skip possible INFOFLAG present in data
             if (byte_index < len(inc_data)) and (cells != int(inc_data[byte_index:byte_index+2],16)):
                 byte_index += 2
